@@ -20,10 +20,11 @@ namespace leeway {
         bool showHud = true;
 
         // runtime
-        bool bufferedPending = false;
+        bool bufferedPending = false;   // click hecho en el aire (ya enviado al juego)
         bool bufferedIsP1 = true;
         int  bufferedAge = 0;
-        bool pendingRelease = false;
+        bool bufferedReleased = false;  // el jugador ya solto el boton
+        bool skipReplay = false;        // el click fue para un orbe: no repetirlo al aterrizar
         bool releaseNext = false;
         bool releaseNextIsP1 = true;
         int  ticksSinceGround = 999;
@@ -38,7 +39,7 @@ namespace leeway {
     inline void reset() {
         auto& s = get();
         s.bufferedPending = false; s.bufferedAge = 0;
-        s.pendingRelease = false;  s.releaseNext = false;
+        s.bufferedReleased = false; s.skipReplay = false; s.releaseNext = false;
         s.ticksSinceGround = 999;  s.lastTick = -1;
         s.lastUsedTicks = 0;       s.usedThisAttempt = false;
     }
@@ -66,6 +67,19 @@ namespace leeway {
         return !(p->m_isShip || p->m_isBird || p->m_isDart || p->m_isSwing);
     }
 
+    // Intenta detectar si el jugador esta tocando un orbe. Prueba varios tipos de
+    // campo (segun la version de los bindings); si no existe ninguno, devuelve false.
+    template <class T>
+    inline bool touchingRing(T* p) {
+        if constexpr (requires { p->m_touchingRings->count(); }) {
+            return p->m_touchingRings && p->m_touchingRings->count() > 0;
+        } else if constexpr (requires { p->m_touchingRings.size(); }) {
+            return p->m_touchingRings.size() > 0;
+        } else {
+            return false;
+        }
+    }
+
     inline int currentTick(GJBaseGameLayer* gl) {
         return static_cast<int>(gl->m_gameState.m_currentProgress);
     }
@@ -81,17 +95,22 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        // Release: si hay un click en buffer del mismo jugador, lo encolamos
+        // Soltar el boton: solo lo anotamos. El click original ya se envio al juego.
         if (!down) {
             if (s.bufferedPending && s.bufferedIsP1 == isPlayer1) {
-                s.pendingRelease = true;
-                return;
+                s.bufferedReleased = true;
             }
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
         auto* p = isPlayer1 ? m_player1 : m_player2;
-        if (!p || !leeway::needsGround(p) || p->m_isOnGround) {
+        if (!p) {
+            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        }
+
+        // Click con el jugador en el suelo (o en un modo que no necesita suelo): normal
+        if (!leeway::needsGround(p) || p->m_isOnGround) {
+            s.bufferedPending = false;
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
@@ -108,15 +127,15 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return;
         }
 
-        // Buffer: guardamos el click en lugar de enviarlo ahora
+        // Click en el aire: lo recordamos para repetirlo al aterrizar, pero ADEMAS lo
+        // enviamos al juego ahora mismo, para que los orbes sigan funcionando.
         if (s.bufferTicks > 0) {
             s.bufferedPending = true;
             s.bufferedIsP1 = isPlayer1;
             s.bufferedAge = 0;
-            s.pendingRelease = false;
-            return;
+            s.bufferedReleased = false;
+            s.skipReplay = leeway::touchingRing(p);
         }
-
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
     }
 
@@ -144,23 +163,23 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
                 s.bufferedAge += delta;
                 auto* p = s.bufferedIsP1 ? m_player1 : m_player2;
 
-                if (p && (p->m_isOnGround || !leeway::needsGround(p))) {
-                    s.lastUsedTicks = s.bufferedAge;
-                    s.usedThisAttempt = true;
-                    s.bufferedPending = false;
+                if (p && leeway::needsGround(p) && p->m_isOnGround) {
+                    // Aterrizamos. Si el click fue "en vacio" (no era para un orbe), ya se
+                    // solto y el juego no salto solo, lo repetimos ahora.
+                    if (!s.skipReplay && s.bufferedReleased && s.bufferedAge <= s.bufferTicks) {
+                        s.lastUsedTicks = s.bufferedAge;
+                        s.usedThisAttempt = true;
 
-                    s.injecting = true;
-                    GJBaseGameLayer::handleButton(true, 1, s.bufferedIsP1);
-                    s.injecting = false;
+                        s.injecting = true;
+                        GJBaseGameLayer::handleButton(true, 1, s.bufferedIsP1);
+                        s.injecting = false;
 
-                    if (s.pendingRelease) {
-                        s.pendingRelease = false;
                         s.releaseNext = true;
                         s.releaseNextIsP1 = s.bufferedIsP1;
                     }
-                } else if (s.bufferedAge > s.bufferTicks) {
                     s.bufferedPending = false;
-                    s.pendingRelease = false;
+                } else if (s.bufferedAge > s.bufferTicks) {
+                    s.bufferedPending = false; // expiro
                 }
             }
         }
