@@ -1,4 +1,4 @@
-// Tick Leeway - input buffer / coyote time / air modes (uso local y educativo)
+// Tick Leeway - input buffer / coyote time / air modes (excluyendo Ship)
 // Objetivo: GD 2.2081 / Geode 5.11.x
 // Panel nativo de Cocos (sin ImGui): F6 muestra/oculta, F7 on/off, F8 / F9 = buffer +1 / -1.
 
@@ -62,9 +62,9 @@ namespace leeway {
         Mod::get()->setSettingValue<int64_t>("buffer-ticks", get().bufferTicks);
     }
 
-    // Identifica si el modo de juego es de aire (Wave, Ship, UFO, Swingcopter)
+    // Identifica modos de aire EXCLUYENDO la nave (m_isShip) para que se sienta nativa y fluida
     inline bool isAirMode(PlayerObject* p) {
-        return (p->m_isShip || p->m_isBird || p->m_isDart || p->m_isSwing);
+        return (p->m_isBird || p->m_isDart || p->m_isSwing); // UFO, Wave, Swingcopter
     }
 
     // Intenta detectar si el jugador esta tocando un orbe.
@@ -101,7 +101,7 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
 
         bool airMode = leeway::isAirMode(p);
 
-        // Si soltamos el botón, lo dejamos pasar normal (excepto si hay buffer de suelo pendiente)
+        // Si soltamos el botón, lo dejamos pasar normal
         if (!down) {
             if (!airMode && s.bufferedPending && s.bufferedIsP1 == isPlayer1) {
                 s.bufferedReleased = true;
@@ -109,24 +109,29 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        // --- LÓGICA PARA MODOS DE AIRE (Wave, Nave, UFO, Swing) ---
+        // --- LÓGICA PARA MODOS DE AIRE (Wave, UFO, Swing) ---
         if (airMode) {
             if (s.bufferTicks <= 0) {
                 return GJBaseGameLayer::handleButton(down, button, isPlayer1);
             }
 
             if (s.bufferedPending) {
-                return; // Ignoramos nuevos clicks mientras hay uno acumulado para retrasar
+                return; 
             }
 
             s.bufferedPending = true;
             s.bufferedIsP1 = isPlayer1;
             s.bufferedAge = 0;
-            return; // Bloqueamos el click inmediato para aplicarlo tras los ticks de buffer
+            return; 
         }
 
-        // --- LÓGICA TRADICIONAL PARA SUELO (Cubo, Robot, Araña, Bola) ---
-        if (p->m_isOnGround) {
+        // --- LÓGICA TRADICIONAL PARA SUELO (Cubo, Robot, Araña, Bola) y NAVE (Ship) ---
+        if (p->m_isOnGround || p->m_isShip) {
+            if (p->m_isShip) {
+                // Si es nave, dejamos pasar el input de inmediato sin modificar peso
+                s.bufferedPending = false;
+                return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+            }
             s.bufferedPending = false;
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
@@ -181,7 +186,6 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
                     bool airMode = leeway::isAirMode(p);
 
                     if (airMode) {
-                        // En modos de aire, al cumplirse los ticks de buffer, inyectamos el click retrasado
                         if (s.bufferedAge >= s.bufferTicks) {
                             s.lastUsedTicks = s.bufferedAge;
                             s.usedThisAttempt = true;
@@ -193,7 +197,6 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
                             s.bufferedPending = false;
                         }
                     } else {
-                        // Lógica de suelo existente (Cubo, Robot, Araña, Bola)
                         if (p->m_isOnGround) {
                             if (!s.skipReplay && s.bufferedReleased && s.bufferedAge <= s.bufferTicks) {
                                 s.lastUsedTicks = s.bufferedAge;
