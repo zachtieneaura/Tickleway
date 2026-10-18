@@ -1,4 +1,4 @@
-// Tick Leeway - input buffer / coyote time (uso local y educativo)
+// Tick Leeway - input buffer / coyote time / air modes (uso local y educativo)
 // Objetivo: GD 2.2081 / Geode 5.11.x
 // Panel nativo de Cocos (sin ImGui): F6 muestra/oculta, F7 on/off, F8 / F9 = buffer +1 / -1.
 
@@ -20,11 +20,11 @@ namespace leeway {
         bool showHud = true;
 
         // runtime
-        bool bufferedPending = false;   // click hecho en el aire (ya enviado al juego)
+        bool bufferedPending = false;   // click hecho
         bool bufferedIsP1 = true;
         int  bufferedAge = 0;
         bool bufferedReleased = false;  // el jugador ya solto el boton
-        bool skipReplay = false;        // el click fue para un orbe: no repetirlo al aterrizar
+        bool skipReplay = false;        // el click fue para un orbe: no repetirlo
         bool releaseNext = false;
         bool releaseNextIsP1 = true;
         int  ticksSinceGround = 999;
@@ -62,13 +62,12 @@ namespace leeway {
         Mod::get()->setSettingValue<int64_t>("buffer-ticks", get().bufferTicks);
     }
 
-    // Cubo/robot/arana necesitan suelo; nave, ufo, wave, swing no.
-    inline bool needsGround(PlayerObject* p) {
-        return !(p->m_isShip || p->m_isBird || p->m_isDart || p->m_isSwing);
+    // Identifica si el modo de juego es de aire (Wave, Ship, UFO, Swingcopter)
+    inline bool isAirMode(PlayerObject* p) {
+        return (p->m_isShip || p->m_isBird || p->m_isDart || p->m_isSwing);
     }
 
-    // Intenta detectar si el jugador esta tocando un orbe. Prueba varios tipos de
-    // campo (segun la version de los bindings); si no existe ninguno, devuelve false.
+    // Intenta detectar si el jugador esta tocando un orbe.
     template <class T>
     inline bool touchingRing(T* p) {
         if constexpr (requires { p->m_touchingRings->count(); }) {
@@ -95,7 +94,27 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        // Soltar el boton: solo lo anotamos. El click original ya se envio al juego.
+        auto* p = isPlayer1 ? m_player1 : m_player2;
+        if (!p) {
+            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        }
+
+        // --- LÓGICA PARA MODOS DE AIRE (Wave, Ship, UFO, Swing) ---
+        if (leeway::isAirMode(p)) {
+            if (!down) {
+                return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+            }
+
+            if (s.bufferTicks > 0) {
+                s.bufferedPending = true;
+                s.bufferedIsP1 = isPlayer1;
+                s.bufferedAge = 0;
+                s.skipReplay = leeway::touchingRing(p);
+            }
+            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        }
+
+        // --- LÓGICA TRADICIONAL PARA MODOS DE SUELO (Cubo, Robot, Araña, Bola) ---
         if (!down) {
             if (s.bufferedPending && s.bufferedIsP1 == isPlayer1) {
                 s.bufferedReleased = true;
@@ -103,18 +122,12 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        auto* p = isPlayer1 ? m_player1 : m_player2;
-        if (!p) {
-            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
-        }
-
-        // Click con el jugador en el suelo (o en un modo que no necesita suelo): normal
-        if (!leeway::needsGround(p) || p->m_isOnGround) {
+        if (p->m_isOnGround) {
             s.bufferedPending = false;
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        // Coyote (experimental): acabamos de dejar el suelo
+        // Coyote ticks para suelo
         if (s.coyoteTicks > 0 && s.ticksSinceGround <= s.coyoteTicks) {
             bool prev = p->m_isOnGround;
             p->m_isOnGround = true;
@@ -127,8 +140,6 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return;
         }
 
-        // Click en el aire: lo recordamos para repetirlo al aterrizar, pero ADEMAS lo
-        // enviamos al juego ahora mismo, para que los orbes sigan funcionando.
         if (s.bufferTicks > 0) {
             s.bufferedPending = true;
             s.bufferedIsP1 = isPlayer1;
@@ -139,7 +150,6 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
     }
 
-    // En 2.2081 esta funcion se llama por paso de fisica (tick)
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         auto& s = leeway::get();
 
@@ -163,23 +173,33 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
                 s.bufferedAge += delta;
                 auto* p = s.bufferedIsP1 ? m_player1 : m_player2;
 
-                if (p && leeway::needsGround(p) && p->m_isOnGround) {
-                    // Aterrizamos. Si el click fue "en vacio" (no era para un orbe), ya se
-                    // solto y el juego no salto solo, lo repetimos ahora.
-                    if (!s.skipReplay && s.bufferedReleased && s.bufferedAge <= s.bufferTicks) {
-                        s.lastUsedTicks = s.bufferedAge;
-                        s.usedThisAttempt = true;
+                if (p) {
+                    if (leeway::isAirMode(p)) {
+                        // Gestión de retardo por ticks en modos de aire
+                        if (s.bufferedAge >= s.bufferTicks) {
+                            s.lastUsedTicks = s.bufferedAge;
+                            s.usedThisAttempt = true;
+                            s.bufferedPending = false;
+                        }
+                    } else {
+                        // Lógica para suelo (Cubo, Robot, Araña, Bola)
+                        if (p->m_isOnGround) {
+                            if (!s.skipReplay && s.bufferedReleased && s.bufferedAge <= s.bufferTicks) {
+                                s.lastUsedTicks = s.bufferedAge;
+                                s.usedThisAttempt = true;
 
-                        s.injecting = true;
-                        GJBaseGameLayer::handleButton(true, 1, s.bufferedIsP1);
-                        s.injecting = false;
+                                s.injecting = true;
+                                GJBaseGameLayer::handleButton(true, 1, s.bufferedIsP1);
+                                s.injecting = false;
 
-                        s.releaseNext = true;
-                        s.releaseNextIsP1 = s.bufferedIsP1;
+                                s.releaseNext = true;
+                                s.releaseNextIsP1 = s.bufferedIsP1;
+                            }
+                            s.bufferedPending = false;
+                        } else if (s.bufferedAge > s.bufferTicks) {
+                            s.bufferedPending = false;
+                        }
                     }
-                    s.bufferedPending = false;
-                } else if (s.bufferedAge > s.bufferTicks) {
-                    s.bufferedPending = false; // expiro
                 }
             }
         }
