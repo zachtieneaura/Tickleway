@@ -99,29 +99,33 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        // --- LÓGICA PARA MODOS DE AIRE (Wave, Ship, UFO, Swing) ---
-        if (leeway::isAirMode(p)) {
-            if (!down) {
-                return GJBaseGameLayer::handleButton(down, button, isPlayer1);
-            }
+        bool airMode = leeway::isAirMode(p);
 
-            if (s.bufferTicks > 0) {
-                s.bufferedPending = true;
-                s.bufferedIsP1 = isPlayer1;
-                s.bufferedAge = 0;
-                s.skipReplay = leeway::touchingRing(p);
-            }
-            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
-        }
-
-        // --- LÓGICA TRADICIONAL PARA MODOS DE SUELO (Cubo, Robot, Araña, Bola) ---
+        // Si soltamos el botón, lo dejamos pasar normal (excepto si hay buffer de suelo pendiente)
         if (!down) {
-            if (s.bufferedPending && s.bufferedIsP1 == isPlayer1) {
+            if (!airMode && s.bufferedPending && s.bufferedIsP1 == isPlayer1) {
                 s.bufferedReleased = true;
             }
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
+        // --- LÓGICA PARA MODOS DE AIRE (Wave, Nave, UFO, Swing) ---
+        if (airMode) {
+            if (s.bufferTicks <= 0) {
+                return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+            }
+
+            if (s.bufferedPending) {
+                return; // Ignoramos nuevos clicks mientras hay uno acumulado para retrasar
+            }
+
+            s.bufferedPending = true;
+            s.bufferedIsP1 = isPlayer1;
+            s.bufferedAge = 0;
+            return; // Bloqueamos el click inmediato para aplicarlo tras los ticks de buffer
+        }
+
+        // --- LÓGICA TRADICIONAL PARA SUELO (Cubo, Robot, Araña, Bola) ---
         if (p->m_isOnGround) {
             s.bufferedPending = false;
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
@@ -174,15 +178,22 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
                 auto* p = s.bufferedIsP1 ? m_player1 : m_player2;
 
                 if (p) {
-                    if (leeway::isAirMode(p)) {
-                        // Gestión de retardo por ticks en modos de aire
+                    bool airMode = leeway::isAirMode(p);
+
+                    if (airMode) {
+                        // En modos de aire, al cumplirse los ticks de buffer, inyectamos el click retrasado
                         if (s.bufferedAge >= s.bufferTicks) {
                             s.lastUsedTicks = s.bufferedAge;
                             s.usedThisAttempt = true;
+
+                            s.injecting = true;
+                            GJBaseGameLayer::handleButton(true, 1, s.bufferedIsP1);
+                            s.injecting = false;
+
                             s.bufferedPending = false;
                         }
                     } else {
-                        // Lógica para suelo (Cubo, Robot, Araña, Bola)
+                        // Lógica de suelo existente (Cubo, Robot, Araña, Bola)
                         if (p->m_isOnGround) {
                             if (!s.skipReplay && s.bufferedReleased && s.bufferedAge <= s.bufferTicks) {
                                 s.lastUsedTicks = s.bufferedAge;
