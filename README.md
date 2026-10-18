@@ -10,6 +10,8 @@ tolerancia de ticks (coyote experimental), panel en pantalla e indicador (HUD).
 - **F7**: activar/desactivar el mod
 - **F8 / F9**: subir / bajar los ticks de buffer (0 a 8)
 
+El texto de arriba a la izquierda se puede ocultar en los ajustes del mod ("Mostrar indicador").
+
 ## Compilar con GitHub Actions
 1. Sube la carpeta a un repositorio de GitHub (crea `.github/workflows/build.yml` desde la web si no se sube).
 2. Ve a **Actions > Build Geode Mod**.

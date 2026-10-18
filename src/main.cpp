@@ -17,6 +17,7 @@ namespace leeway {
         int  bufferTicks = 3;
         int  coyoteTicks = 0;
         bool panelVisible = false;
+        bool showHud = true;
 
         // runtime
         bool bufferedPending = false;
@@ -45,6 +46,7 @@ namespace leeway {
     inline void syncSettings() {
         auto& s = get();
         s.enabled     = Mod::get()->getSettingValue<bool>("enabled");
+        s.showHud     = Mod::get()->getSettingValue<bool>("show-hud");
         s.bufferTicks = static_cast<int>(Mod::get()->getSettingValue<int64_t>("buffer-ticks"));
         s.coyoteTicks = static_cast<int>(Mod::get()->getSettingValue<int64_t>("coyote-ticks"));
     }
@@ -251,7 +253,8 @@ class $modify(LeewayPL, PlayLayer) {
         auto& s = leeway::get();
 
         if (m_fields->hud) {
-            m_fields->hud->setVisible(s.enabled);
+            s.showHud = Mod::get()->getSettingValue<bool>("show-hud");
+            m_fields->hud->setVisible(s.enabled && s.showHud);
             m_fields->hud->setString(
                 fmt::format("Buffer: {}/{} | Usado: {}t",
                             s.bufferedPending ? s.bufferedAge : 0,

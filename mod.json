@@ -15,6 +15,12 @@
       "name": "Activado",
       "description": "Activa o desactiva el mod."
     },
+    "show-hud": {
+      "type": "bool",
+      "default": true,
+      "name": "Mostrar indicador",
+      "description": "Muestra u oculta el texto de arriba a la izquierda durante el nivel."
+    },
     "buffer-ticks": {
       "type": "int",
       "default": 3,
