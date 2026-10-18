@@ -1,0 +1,35 @@
+{
+  "geode": "5.10.1",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "zachbtw.tickleeway",
+  "name": "Tick Leeway",
+  "version": "v0.1.0",
+  "developer": "zachbtw",
+  "description": "Input buffer y tolerancia de ticks (uso local/educativo).",
+  "settings": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "name": "Activado",
+      "description": "Activa o desactiva el mod."
+    },
+    "buffer-ticks": {
+      "type": "int",
+      "default": 3,
+      "min": 0,
+      "max": 8,
+      "name": "Ticks de buffer",
+      "description": "Cuantos ticks se guarda un click anticipado."
+    },
+    "coyote-ticks": {
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 8,
+      "name": "Ticks coyote (experimental)",
+      "description": "Ticks de tolerancia despues de dejar el suelo."
+    }
+  }
+}
