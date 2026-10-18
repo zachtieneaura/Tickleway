@@ -1,12 +1,11 @@
 // Tick Leeway - input buffer / coyote time (uso local y educativo)
-// Objetivo: GD 2.2081 / Geode 5.10.1
-// Si algun nombre de campo o firma no compila, revisa Geode/binding/*.hpp de tu SDK.
+// Objetivo: GD 2.2081 / Geode 5.11.x
+// Panel nativo de Cocos (sin ImGui): F6 muestra/oculta, F7 on/off, F8 / F9 = buffer +1 / -1.
 
 #include <Geode/Geode.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/CCKeyboardDispatcher.hpp>
-#include <imgui-cocos.hpp>
 #include <algorithm>
 
 using namespace geode::prelude;
@@ -17,19 +16,20 @@ namespace leeway {
         bool enabled = true;
         int  bufferTicks = 3;
         int  coyoteTicks = 0;
+        bool panelVisible = false;
 
         // runtime
         bool bufferedPending = false;
         bool bufferedIsP1 = true;
         int  bufferedAge = 0;
-        bool pendingRelease = false;  // release recibido mientras habia un click en buffer
-        bool releaseNext = false;     // release a inyectar en el siguiente tick
+        bool pendingRelease = false;
+        bool releaseNext = false;
         bool releaseNextIsP1 = true;
         int  ticksSinceGround = 999;
         int  lastTick = -1;
-        int  lastUsedTicks = 0;       // para el HUD
-        bool injecting = false;       // evita recursion al reenviar clicks
-        bool usedThisAttempt = false; // para un futuro "modo seguro"
+        int  lastUsedTicks = 0;
+        bool injecting = false;
+        bool usedThisAttempt = false;
     };
 
     inline State& get() { static State s; return s; }
@@ -49,12 +49,21 @@ namespace leeway {
         s.coyoteTicks = static_cast<int>(Mod::get()->getSettingValue<int64_t>("coyote-ticks"));
     }
 
+    inline void setEnabled(bool v) {
+        get().enabled = v;
+        Mod::get()->setSettingValue<bool>("enabled", v);
+    }
+
+    inline void setBuffer(int v) {
+        get().bufferTicks = std::clamp(v, 0, 8);
+        Mod::get()->setSettingValue<int64_t>("buffer-ticks", get().bufferTicks);
+    }
+
     // Cubo/robot/arana necesitan suelo; nave, ufo, wave, swing no.
     inline bool needsGround(PlayerObject* p) {
         return !(p->m_isShip || p->m_isBird || p->m_isDart || p->m_isSwing);
     }
 
-    // Contador de pasos de fisica. Verifica el nombre del campo en tus bindings.
     inline int currentTick(GJBaseGameLayer* gl) {
         return static_cast<int>(gl->m_gameState.m_currentProgress);
     }
@@ -109,7 +118,8 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
     }
 
-    void processCommands(float dt) {
+    // En 2.2081 esta funcion se llama por paso de fisica (tick)
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         auto& s = leeway::get();
 
         if (s.enabled) {
@@ -117,7 +127,6 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
             int delta = (s.lastTick < 0) ? 0 : std::max(0, tick - s.lastTick);
             s.lastTick = tick;
 
-            // Release diferido del click que se inyecto en el tick anterior
             if (s.releaseNext) {
                 s.releaseNext = false;
                 s.injecting = true;
@@ -148,21 +157,76 @@ class $modify(LeewayGJBGL, GJBaseGameLayer) {
                         s.releaseNextIsP1 = s.bufferedIsP1;
                     }
                 } else if (s.bufferedAge > s.bufferTicks) {
-                    s.bufferedPending = false; // expiro
+                    s.bufferedPending = false;
                     s.pendingRelease = false;
                 }
             }
         }
 
-        GJBaseGameLayer::processCommands(dt);
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
     }
 };
 
-// ---------- HUD ----------
+// ---------- HUD + panel nativo ----------
 class $modify(LeewayPL, PlayLayer) {
     struct Fields {
-        CCLabelBMFont* label = nullptr;
+        CCLabelBMFont* hud = nullptr;
+        CCNode* panel = nullptr;
+        CCLabelBMFont* info = nullptr;
     };
+
+    void onLeewayToggle(CCObject*) { leeway::setEnabled(!leeway::get().enabled); }
+    void onLeewayMinus(CCObject*)  { leeway::setBuffer(leeway::get().bufferTicks - 1); }
+    void onLeewayPlus(CCObject*)   { leeway::setBuffer(leeway::get().bufferTicks + 1); }
+
+    void buildPanel() {
+        auto win = CCDirector::get()->getWinSize();
+
+        auto* panel = CCNode::create();
+        panel->setPosition({win.width - 105.f, win.height / 2.f});
+        panel->setZOrder(100);
+
+        auto* bg = CCScale9Sprite::create("square02b_001.png");
+        bg->setContentSize({200.f, 120.f});
+        bg->setColor({0, 0, 0});
+        bg->setOpacity(150);
+        panel->addChild(bg);
+
+        auto* title = CCLabelBMFont::create("Tick Leeway", "bigFont.fnt");
+        title->setScale(0.45f);
+        title->setPosition({0.f, 45.f});
+        panel->addChild(title);
+
+        auto* info = CCLabelBMFont::create("", "bigFont.fnt");
+        info->setScale(0.4f);
+        info->setPosition({0.f, 20.f});
+        panel->addChild(info);
+        m_fields->info = info;
+
+        auto* menu = CCMenu::create();
+        menu->setPosition({0.f, 0.f});
+
+        auto* tBtn = CCMenuItemSpriteExtra::create(
+            ButtonSprite::create("ON/OFF"), this, menu_selector(LeewayPL::onLeewayToggle));
+        tBtn->setPosition({0.f, -5.f});
+        menu->addChild(tBtn);
+
+        auto* mBtn = CCMenuItemSpriteExtra::create(
+            ButtonSprite::create("-"), this, menu_selector(LeewayPL::onLeewayMinus));
+        mBtn->setPosition({-40.f, -38.f});
+        menu->addChild(mBtn);
+
+        auto* pBtn = CCMenuItemSpriteExtra::create(
+            ButtonSprite::create("+"), this, menu_selector(LeewayPL::onLeewayPlus));
+        pBtn->setPosition({40.f, -38.f});
+        menu->addChild(pBtn);
+
+        panel->addChild(menu);
+        panel->setVisible(false);
+
+        m_uiLayer->addChild(panel);
+        m_fields->panel = panel;
+    }
 
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
@@ -175,8 +239,9 @@ class $modify(LeewayPL, PlayLayer) {
         l->setOpacity(180);
         l->setID("leeway-hud"_spr);
         m_uiLayer->addChild(l);
-        m_fields->label = l;
+        m_fields->hud = l;
 
+        buildPanel();
         leeway::reset();
         return true;
     }
@@ -184,14 +249,23 @@ class $modify(LeewayPL, PlayLayer) {
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         auto& s = leeway::get();
-        if (!m_fields->label) return;
 
-        m_fields->label->setVisible(s.enabled);
-        m_fields->label->setString(
-            fmt::format("Buffer: {}/{} | Usado: {}t",
-                        s.bufferedPending ? s.bufferedAge : 0,
-                        s.bufferTicks,
-                        s.lastUsedTicks).c_str());
+        if (m_fields->hud) {
+            m_fields->hud->setVisible(s.enabled);
+            m_fields->hud->setString(
+                fmt::format("Buffer: {}/{} | Usado: {}t",
+                            s.bufferedPending ? s.bufferedAge : 0,
+                            s.bufferTicks,
+                            s.lastUsedTicks).c_str());
+        }
+
+        if (m_fields->panel) {
+            m_fields->panel->setVisible(s.panelVisible);
+            if (s.panelVisible && m_fields->info) {
+                m_fields->info->setString(
+                    fmt::format("{} | Buffer: {}t", s.enabled ? "ON" : "OFF", s.bufferTicks).c_str());
+            }
+        }
     }
 
     void resetLevel() {
@@ -200,40 +274,23 @@ class $modify(LeewayPL, PlayLayer) {
     }
 };
 
-// ---------- Hotkey F6 ----------
+// ---------- Teclas: F6 panel, F7 on/off, F8 +1, F9 -1 ----------
 class $modify(LeewayKB, CCKeyboardDispatcher) {
-    // En 2.2081 la firma incluye `double timestamp`. Si no compila, quita ese parametro.
     bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool repeat, double timestamp) {
-        if (down && !repeat && key == KEY_F6) {
-            ImGuiCocos::get().toggle();
-            return true;
+        if (down && !repeat) {
+            auto& s = leeway::get();
+            switch (key) {
+                case KEY_F6: s.panelVisible = !s.panelVisible; return true;
+                case KEY_F7: leeway::setEnabled(!s.enabled); return true;
+                case KEY_F8: leeway::setBuffer(s.bufferTicks + 1); return true;
+                case KEY_F9: leeway::setBuffer(s.bufferTicks - 1); return true;
+                default: break;
+            }
         }
         return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, repeat, timestamp);
     }
 };
 
-// ---------- Menu ImGui ----------
 $on_mod(Loaded) {
     leeway::syncSettings();
-
-    ImGuiCocos::get().setup([] {
-        // estilo / fuentes opcionales
-    }).draw([] {
-        auto& s = leeway::get();
-        ImGui::Begin("Tick Leeway");
-
-        if (ImGui::Checkbox("Activado", &s.enabled)) {
-            Mod::get()->setSettingValue<bool>("enabled", s.enabled);
-        }
-        if (ImGui::SliderInt("Ticks buffer", &s.bufferTicks, 0, 8)) {
-            Mod::get()->setSettingValue<int64_t>("buffer-ticks", s.bufferTicks);
-        }
-        if (ImGui::SliderInt("Ticks coyote (exp.)", &s.coyoteTicks, 0, 8)) {
-            Mod::get()->setSettingValue<int64_t>("coyote-ticks", s.coyoteTicks);
-        }
-        ImGui::Separator();
-        ImGui::Text("Buffer activo: %s", s.bufferedPending ? "si" : "no");
-        ImGui::Text("Ultimo uso: %d ticks", s.lastUsedTicks);
-        ImGui::End();
-    });
 }

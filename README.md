@@ -1,21 +1,21 @@
 # Tick Leeway (Geode)
 
-Mod educativo/local para Geometry Dash 2.2081 (Geode 5.10.1): input buffer y
-tolerancia de ticks (coyote experimental), menu ImGui (F6) e indicador en pantalla.
+Mod educativo/local para Geometry Dash 2.2081 (Geode 5.11.x): input buffer y
+tolerancia de ticks (coyote experimental), panel en pantalla e indicador (HUD).
 
 > Usalo solo en local. No lo uses para records ni envios a listas competitivas.
 
-## Compilar con GitHub Actions
-1. Sube la carpeta a un repositorio de GitHub.
-2. Ve a **Actions > Build Geode Mod** (se ejecuta en cada push o manualmente).
-3. Descarga el artefacto **Build Output**: contiene el `.geode`.
-4. Copia el `.geode` a `Geometry Dash/geode/mods/`.
+## Teclas
+- **F6**: mostrar/ocultar el panel (botones ON/OFF, - y +)
+- **F7**: activar/desactivar el mod
+- **F8 / F9**: subir / bajar los ticks de buffer (0 a 8)
 
-## Compilar en local (Windows)
-1. Instala Geode CLI y el SDK, y define `GEODE_SDK`.
-2. `geode build` dentro de esta carpeta.
+## Compilar con GitHub Actions
+1. Sube la carpeta a un repositorio de GitHub (crea `.github/workflows/build.yml` desde la web si no se sube).
+2. Ve a **Actions > Build Geode Mod**.
+3. Descarga el artefacto **Build Output** (contiene el `.geode`).
+4. Copialo a `Geometry Dash/geode/mods/`.
 
 ## Notas
-- Los nombres de campos (`m_gameState.m_currentProgress`, `m_isShip`, etc.) y la firma de
-  `dispatchKeyboardMSG` dependen de los bindings; ajustalos si el compilador se queja.
-- `sdk: latest` en `.github/workflows/build.yml` puede cambiarse a una version fija.
+- El `mod.json` debe coincidir con la version del SDK que use el workflow (`sdk: latest`).
+- Se quito ImGui: la libreria `gd-imgui-cocos` (rama main) no compila con los bindings de 2.2081.

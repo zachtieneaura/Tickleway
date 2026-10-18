@@ -17,8 +17,4 @@ endif()
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 
-# ImGui para Cocos (CPM lo provee el SDK de Geode, por eso va despues de add_subdirectory)
-CPMAddPackage("gh:matcool/gd-imgui-cocos#main")
-target_link_libraries(${PROJECT_NAME} imgui-cocos)
-
 setup_geode_mod(${PROJECT_NAME})
